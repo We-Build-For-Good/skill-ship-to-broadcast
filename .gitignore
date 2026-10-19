@@ -1,0 +1,4 @@
+node_modules/
+release-packets/
+test/.tmp*
+.DS_Store

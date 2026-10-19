@@ -1,0 +1,25 @@
+{
+  "name": "@webuildforgood/skill-ship-to-broadcast",
+  "version": "1.0.0",
+  "description": "Deterministic release packaging and multi-channel broadcast generator with strict human approval boundaries.",
+  "main": "bin/ship-broadcast.mjs",
+  "bin": {
+    "wb4g-broadcast": "bin/ship-broadcast.mjs"
+  },
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "release": "node bin/ship-broadcast.mjs"
+  },
+  "keywords": [
+    "release-management",
+    "broadcast",
+    "changelog-generator",
+    "release-manifest",
+    "agentic-ai",
+    "continuous-delivery",
+    "antigravity"
+  ],
+  "author": "We Build for Good",
+  "license": "MIT"
+}

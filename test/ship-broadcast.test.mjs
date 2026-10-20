@@ -46,7 +46,7 @@ test("creates structured release manifest and packet files", () => {
 
   assert.equal(result.version, "v1.2.0");
   assert.equal(result.manifest.approvalStatus, "PENDING_HUMAN_APPROVAL");
-  assert.equal(result.manifest.totalCommits, 2); // HEAD~2..HEAD
+  assert.equal(result.manifest.totalCommits, 3); // all commits: 1.0.0 dropped the first commit
   assert.equal(result.categorized.fixes.length, 1);
   assert.equal(result.categorized.invariants.length, 1);
 
@@ -113,4 +113,51 @@ test("enforces zero em dash invariant across all generated files", () => {
       `File ${filePath} contains forbidden em dash!`
     );
   }
+});
+
+// Regression tests for the 2026-10-20 catalogue review.
+
+test("never claims checks passed unless the caller supplied passing results", () => {
+  const plain = createReleasePacket({ dir: TMP_DIR, version: "v3.0.0" });
+  assert.equal(plain.manifest.verificationGates, "NOT_RECORDED");
+  assert.doesNotMatch(plain.broadcast, /verified with|mechanically verified|passed our automated checks/i);
+
+  const failing = createReleasePacket({ dir: TMP_DIR, version: "v3.0.1", gates: { invariants: { status: "PASSED" }, visual: { status: "NOT_RUN" } } });
+  assert.doesNotMatch(failing.broadcast, /passed our automated checks/i);
+
+  const passing = createReleasePacket({ dir: TMP_DIR, version: "v3.0.2", gates: { invariants: { status: "PASSED" } } });
+  assert.match(passing.broadcast, /passed our automated checks: invariants/);
+});
+
+test("a ref that does not exist fails instead of producing an empty release", () => {
+  assert.throws(() => createReleasePacket({ dir: TMP_DIR, version: "v4.0.0", since: "no-such-tag" }), /not found/);
+});
+
+test("refs cannot inject shell commands", () => {
+  const marker = path.join(TMP_DIR, "pwned");
+  assert.throws(() => createReleasePacket({ dir: TMP_DIR, version: "v4.0.1", since: `HEAD; touch ${marker}` }));
+  assert.equal(fs.existsSync(marker), false);
+});
+
+test("an empty range fails unless --allow-empty", () => {
+  execSync("git tag v5", { cwd: TMP_DIR });
+  assert.throws(() => createReleasePacket({ dir: TMP_DIR, version: "v5.0.0" }), /No commits/);
+  assert.equal(createReleasePacket({ dir: TMP_DIR, version: "v5.0.0", allowEmpty: true }).commits.length, 0);
+});
+
+test("--update-changelog is idempotent and versions cannot escape the packet folder", () => {
+  createReleasePacket({ dir: TMP_DIR, version: "v6.0.0", updateChangelog: true });
+  const second = createReleasePacket({ dir: TMP_DIR, version: "v6.0.0", updateChangelog: true });
+  const text = fs.readFileSync(path.join(TMP_DIR, "CHANGELOG.md"), "utf8");
+  assert.equal(text.split("## [v6.0.0]").length - 1, 1);
+  assert.ok(second.changelogSkipped);
+  assert.throws(() => createReleasePacket({ dir: TMP_DIR, version: "../../escape" }), /Invalid version/);
+});
+
+test("commit subjects containing | are kept whole", () => {
+  fs.writeFileSync(path.join(TMP_DIR, "file4.txt"), "x\n");
+  execSync("git add file4.txt", { cwd: TMP_DIR });
+  execSync('git commit -m "feat: support a | b pipes"', { cwd: TMP_DIR });
+  const r = createReleasePacket({ dir: TMP_DIR, version: "v7.0.0" });
+  assert.ok(r.categorized.features.some((c) => c.subject === "support a | b pipes"));
 });

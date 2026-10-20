@@ -1,10 +1,10 @@
 ---
 name: ship-to-broadcast
-description: Deterministic release packaging and multi-channel broadcast generator. Compiles git commits into structured release manifests, categorized changelogs, and staged announcements with strict human approval boundaries.
+description: Turns the commits since the last release into a release packet (JSON manifest, grouped changelog section, announcement drafts) marked PENDING_HUMAN_APPROVAL. Never publishes. Use when preparing release notes or announcements from git history.
 license: MIT
 metadata:
   author: We Build for Good
-  version: "1.0.0"
+  version: "2.0.0"
 ---
 
 # Ship to Broadcast: Deterministic Release Packaging
@@ -23,63 +23,31 @@ AI agents may assemble, format, and stage release materials from verified commit
 
 ---
 
-## Release Artifacts
+## What it produces
 
-Every release invocation produces a versioned packet inside `./release-packets/<version>/`:
+Every run writes `release-packets/<version>/` in the repository:
 
-### 1. The Release Manifest (`RELEASE-MANIFEST.json`)
-* **Purpose:** Audit-grade ledger of the release for clients, compliance, and internal tracking.
-* **Fields:** Release ID, version, timestamp, git head SHA, commit range, categorized summary, diff statistics (files changed, insertions, deletions), and verification gate attestations.
+1. **`RELEASE-MANIFEST.json`**: version, commit range and how it was chosen, head SHA, the commits, counts by type, diff stats, and check results only when a caller supplied them with `--gates` (otherwise `"NOT_RECORDED"`).
+2. **`CHANGELOG.md`**: commits grouped by conventional-commit type, with GitHub commit links.
+3. **`BROADCAST-PENDING.md`**: summary, customer notes, and social drafts, stamped `PENDING HUMAN APPROVAL`.
 
-### 2. The Categorized Changelog (`CHANGELOG.md`)
-* **Purpose:** Human-readable release notes conforming to Keep a Changelog standards.
-* **Sections:** Features & Capabilities (`feat`), Bug Fixes & Reliability (`fix`), Performance (`perf`), Studio Invariants & Discipline (`rule`, `inv`), Refactoring (`refactor`), and Maintenance (`chore`, `docs`).
-* **Links:** Automatic GitHub commit links mapped to repository origin.
+## Rules for the agent
 
-### 3. The Broadcast Packet (`BROADCAST-PENDING.md`)
-* **Purpose:** Staged communications ready for founder or executive review.
-* **Channels Included:**
-  - Executive / Client Brief: Business value delivered with zero technical jargon.
-  - Customer Release Notes: Public-facing bulleted updates.
-  - Short-Form Social Drafts: Ready for X / Twitter, LinkedIn, and Slack announcement channels.
-* **Status:** Stamped with `STATUS: PENDING_HUMAN_APPROVAL`.
+* **Never send, post, or publish the drafts.** Hand `BROADCAST-PENDING.md` to a human.
+* **Rewrite before review.** The drafts are commit messages, not customer copy. Remove anything internal, and never add a feature that is not in the commit list.
+* **Never claim the release was verified** unless real check results were passed with `--gates` and all passed. The tool enforces this in its own drafts; keep it true in your rewrite.
+* **Choose the range on purpose** with `--since <last-release-tag>`. If there are no tags, the tool uses at most the last 15 commits and says so in the manifest.
 
----
+## CLI
 
-## CLI Usage
-
-### Basic Release Packaging
-Run in the current repository:
 ```bash
-node /Users/lizzie/wb4g-skills/skill-ship-to-broadcast/bin/ship-broadcast.mjs
+node bin/ship-broadcast.mjs --dir path/to/repo --version v1.2.0 --since v1.1.0
+node bin/ship-broadcast.mjs --dir path/to/repo --version v1.2.0 --update-changelog   # skipped if already there
+node bin/ship-broadcast.mjs --gates check-results.json --json
 ```
 
-### Specify Version and Target Directory
-```bash
-node /Users/lizzie/wb4g-skills/skill-ship-to-broadcast/bin/ship-broadcast.mjs --dir /Users/lizzie/departure-alarm --version v1.2.0
-```
+Exit codes: `0` packet written, `1` error (bad ref, empty range, invalid version), `2` bad options.
 
-### Prepend to Repository Root CHANGELOG.md
-```bash
-node /Users/lizzie/wb4g-skills/skill-ship-to-broadcast/bin/ship-broadcast.mjs --dir /Users/lizzie/departure-alarm --version v1.2.0 --update-changelog
-```
+## With the other gates
 
-### Machine-Readable JSON Manifest Output
-```bash
-node /Users/lizzie/wb4g-skills/skill-ship-to-broadcast/bin/ship-broadcast.mjs --json
-```
-
----
-
-## The Complete Three-Gate Autonomous Pipeline
-
-The We Build for Good studio workflow operates across three sequential gates:
-
-1. **Gate 1: Policy & Syntax Discipline (`skill-system-invariant-engine`)**
-   Enforces character invariants (no em dashes), Prettier formatting, file boundaries (<400 lines), and brand integrity.
-2. **Gate 2: Sensory Perception (`skill-visual-sensory-audit`)**
-   Drives headless Chrome across mobile, tablet, and desktop viewports to catch layout blowouts, broken assets, and runtime errors.
-3. **Gate 3: Packaging & Broadcast (`skill-ship-to-broadcast`)**
-   Compiles verified changes into release manifests, changelogs, and human-gated broadcast packets.
-
-Only when all three gates have executed cleanly is work considered complete.
+`skill-safe-deploy` runs the invariant engine and visual audit first, then runs this tool with their real results.

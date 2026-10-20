@@ -1,104 +1,99 @@
 #!/usr/bin/env node
 
+import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { createReleasePacket } from "../lib/packet-writer.mjs";
+import { allGatesPassed } from "../lib/broadcast-composer.mjs";
 
-function printHelp() {
-  console.log(`
-We Build for Good: Ship to Broadcast Release Pipeline (wb4g-broadcast)
+const HELP = `
+We Build for Good: Ship to Broadcast (wb4g-broadcast)
 
-Usage:
-  wb4g-broadcast [options]
-  node ship-broadcast.mjs [options]
+Builds a release packet from git history: a manifest, a changelog section, and
+announcement drafts marked PENDING_HUMAN_APPROVAL. It never publishes anything.
 
-Options:
-  --dir <path>             Target repository root (default: current directory)
-  --version <tag>          Release version name (default: short SHA or v1.0.0)
-  --since <ref>            Starting git ref / tag to inspect commits from
+Usage: wb4g-broadcast [options]
+
+  --dir <path>             Repository root (default: current directory)
+  --version <tag>          Release name (default: short commit SHA)
+  --since <ref>            Include commits after this ref (default: latest tag)
   --from <ref> --to <ref>  Explicit commit range
-  --output-dir <path>      Output directory for packet (default: ./release-packets)
-  --update-changelog       Prepend new release section to CHANGELOG.md in repo root
-  --json                   Output release manifest as JSON to stdout
-  --help                   Display documentation
-`);
-}
+  --gates <file>           JSON file of check results to record, e.g. {"invariants":{"status":"PASSED"}}
+  --output-dir <path>      Where packets go (default: <dir>/release-packets)
+  --update-changelog       Add the section to CHANGELOG.md (skipped if that version is already there)
+  --allow-empty            Write a packet even when the range has no commits
+  --json                   Print the manifest as JSON
+  --help, -h               Show this help
 
-const args = process.argv.slice(2);
-if (args.includes("--help") || args.includes("-h")) {
-  printHelp();
-  process.exit(0);
-}
+Exit codes: 0 packet written, 1 error, 2 bad options.
+`;
 
-const options = {
-  dir: process.cwd(),
-  version: null,
-  since: null,
-  from: null,
-  to: null,
-  outputDir: "./release-packets",
-  updateChangelog: false,
-  json: false,
-};
-
-for (let i = 0; i < args.length; i++) {
-  const arg = args[i];
-  if (arg === "--dir" && args[i + 1]) {
-    options.dir = args[++i];
-  } else if (arg === "--version" && args[i + 1]) {
-    options.version = args[++i];
-  } else if (arg === "--since" && args[i + 1]) {
-    options.since = args[++i];
-  } else if (arg === "--from" && args[i + 1]) {
-    options.from = args[++i];
-  } else if (arg === "--to" && args[i + 1]) {
-    options.to = args[++i];
-  } else if (arg === "--output-dir" && args[i + 1]) {
-    options.outputDir = args[++i];
-  } else if (arg === "--update-changelog") {
-    options.updateChangelog = true;
-  } else if (arg === "--json") {
-    options.json = true;
-  } else if (!arg.startsWith("--") && !options.version) {
-    options.version = arg;
+function parseArgs(args) {
+  const options = { dir: process.cwd(), version: null, since: null, from: null, to: null, gatesFile: null, outputDir: "./release-packets", updateChangelog: false, allowEmpty: false, json: false, help: false, errors: [] };
+  const valueFlags = { "--dir": "dir", "--version": "version", "--since": "since", "--from": "from", "--to": "to", "--gates": "gatesFile", "--output-dir": "outputDir" };
+  const boolFlags = { "--update-changelog": "updateChangelog", "--allow-empty": "allowEmpty", "--json": "json", "--help": "help", "-h": "help" };
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (boolFlags[arg]) options[boolFlags[arg]] = true;
+    else if (valueFlags[arg]) {
+      if (i + 1 >= args.length || args[i + 1].startsWith("--")) options.errors.push(`${arg} needs a value.`);
+      else options[valueFlags[arg]] = args[++i];
+    } else options.errors.push(`Unknown option: ${arg}`);
   }
+  return options;
 }
 
-try {
-  const result = createReleasePacket(options);
+function main() {
+  const options = parseArgs(process.argv.slice(2));
+  if (options.help) {
+    console.log(HELP);
+    return 0;
+  }
+  if (options.errors.length) {
+    options.errors.forEach((e) => console.error(`Error: ${e}`));
+    return 2;
+  }
+  if (options.gatesFile) {
+    try {
+      options.gates = JSON.parse(fs.readFileSync(options.gatesFile, "utf8"));
+    } catch (err) {
+      console.error(`Error: could not read --gates file: ${err.message}`);
+      return 2;
+    }
+  }
+
+  let result;
+  try {
+    result = createReleasePacket(options);
+  } catch (err) {
+    console.error(`Release packaging failed: ${err.message}`);
+    return 1;
+  }
 
   if (options.json) {
     console.log(JSON.stringify(result.manifest, null, 2));
-    process.exit(0);
+    return 0;
   }
 
-  const separator = "=".repeat(59);
-  console.log(separator);
-  console.log(" We Build for Good: Ship to Broadcast Release Pipeline");
-  console.log(` Repository            : ${result.metadata.repoName} (${result.metadata.branch})`);
-  console.log(` Release Version       : ${result.version}`);
-  console.log(` Commit Head           : ${result.metadata.shortSha}`);
-  console.log(` Commit Range          : ${result.metadata.range} (${result.commits.length} commits)`);
-  console.log(` Files Modified        : ${result.diffStats.filesChanged} (+${result.diffStats.insertions} / -${result.diffStats.deletions})`);
-  console.log(" Gate Status           : Invariants (VERIFIED), Sensory Audit (VERIFIED)");
-  console.log(" Approval Gate         : PENDING_HUMAN_APPROVAL");
-  console.log(` Output Directory      : ${path.resolve(result.packetDir)}`);
-  console.log(separator);
-  console.log("");
-  console.log("Generated Release Artifacts:");
-  for (const f of result.filesWritten) {
-    console.log(`  ✓ ${path.basename(f)}`);
-  }
-  console.log("");
-  console.log("Summary of Changes:");
-  console.log(`  • Features: ${result.categorized.features.length}`);
-  console.log(`  • Fixes: ${result.categorized.fixes.length}`);
-  console.log(`  • Invariants & Governance: ${result.categorized.invariants.length}`);
-  console.log(`  • Maintenance: ${result.categorized.maintenance.length}`);
-  console.log("");
-  console.log("Notice: Broadcast draft is staged under PENDING_HUMAN_APPROVAL.");
-  console.log("Review BROADCAST-PENDING.md before dispatching announcements.");
-} catch (err) {
-  console.error("Fatal error during release packaging:", err.message);
-  process.exit(1);
+  const gates = options.gates
+    ? Object.entries(options.gates).map(([k, v]) => `${k} ${(v && v.status) || v}`).join(", ")
+    : "none supplied (the packet makes no verification claim)";
+  const line = "=".repeat(59);
+  console.log(line);
+  console.log(" We Build for Good: Ship to Broadcast");
+  console.log(` Repository   : ${result.metadata.repoName} (${result.metadata.branch})`);
+  console.log(` Version      : ${result.version}`);
+  console.log(` Head         : ${result.metadata.shortSha}`);
+  console.log(` Commits      : ${result.commits.length} (${result.metadata.rangeSource})`);
+  console.log(` Files        : ${result.diffStats.filesChanged} (+${result.diffStats.insertions} / -${result.diffStats.deletions})`);
+  console.log(` Checks       : ${gates}${options.gates && !allGatesPassed(options.gates) ? " (NOT all passed)" : ""}`);
+  console.log(" Approval     : PENDING_HUMAN_APPROVAL");
+  console.log(` Packet       : ${path.resolve(result.packetDir)}`);
+  console.log(line);
+  for (const f of result.filesWritten) console.log(`  wrote ${path.basename(f)}`);
+  if (result.changelogSkipped) console.log(`  ${result.changelogSkipped}`);
+  console.log("\nNothing was published. Review BROADCAST-PENDING.md and rewrite it for customers before sending anything.");
+  return 0;
 }
+
+process.exitCode = main();

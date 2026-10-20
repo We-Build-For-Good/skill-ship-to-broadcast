@@ -1,71 +1,53 @@
-# Ship to Broadcast Release Pipeline (`@webuildforgood/skill-ship-to-broadcast`)
+# Ship to Broadcast (`skill-ship-to-broadcast`)
 
-Deterministic release packaging and multi-channel broadcast generator for agentic coding workflows.
+Turns the commits since your last release into a release packet: a JSON manifest, a changelog section, and announcement drafts, all marked `PENDING_HUMAN_APPROVAL`. It never publishes anything.
 
-Landing code on `main` is not the end of the software lifecycle. A release that sits quietly in git delivers zero commercial value; an announcement drafted by an AI hallucinating unbuilt features destroys customer trust.
-
-The **Ship to Broadcast Engine** (`wb4g-broadcast`) bridges the gap between verified code execution and outward market communication. It deterministically compiles landed git commits into audit-grade release manifests, categorized changelogs, and multi-channel broadcast drafts with a strict, non-negotiable human approval boundary.
+Part of the **We Build for Good** open-source skills library.
 
 ---
 
-## Key Features
+## What it writes
 
-1. **Deterministic Commit Provenance**: Scans git history to extract commit hashes, conventional types (`feat`, `fix`, `perf`, `chore`), and author metadata.
-2. **Audit-Grade Release Manifest**: Outputs structured JSON capturing commit range, diff statistics (+/- lines), and verification gate attestations.
-3. **Categorized Changelog Composer**: Automatically groups changes into Features, Fixes, Performance, Invariants, and Maintenance sections.
-4. **Multi-Channel Broadcast Packets**: Generates drafts tailored for Executive Briefs, Customer Release Notes, and Short-Form Social Announcements.
-5. **Strict Human Sign-Off Gate**: Stamped with `STATUS: PENDING_HUMAN_APPROVAL`. Never dispatches outward communications without human authorization.
+Into `release-packets/<version>/` in the repository (add `release-packets/` to your `.gitignore`):
 
----
+| File | Contents |
+|---|---|
+| `RELEASE-MANIFEST.json` | Version, commit range and how it was chosen, head SHA, commit list, counts by type, diff stats, and check results **only if a caller supplied them** (otherwise `"NOT_RECORDED"`) |
+| `CHANGELOG.md` | The commits grouped by conventional-commit type (`feat`, `fix`, `perf`, `refactor`, everything else), with GitHub commit links |
+| `BROADCAST-PENDING.md` | A summary, customer notes, and short and long social drafts |
 
-## Installation
+The drafts are built from commit messages, which are written for developers. Rewrite them before anyone outside the team sees them. The drafts claim the release "passed our automated checks" only when check results were supplied with `--gates` and every one of them passed.
+
+## Which commits
+
+* `--since <ref>`: commits after that ref.
+* `--from <ref> --to <ref>`: an explicit range.
+* Otherwise: commits since the latest tag. With no tags, the whole history up to 15 commits, or the last 15. The manifest records which rule was used.
+
+A ref that does not exist is an error, and so is a range with no commits (unless `--allow-empty`).
+
+## Install and use
+
+Needs Node 18+ and git. No other dependencies.
 
 ```bash
 git clone https://github.com/We-Build-For-Good/skill-ship-to-broadcast.git
-cd skill-ship-to-broadcast
+
+node bin/ship-broadcast.mjs --dir path/to/repo --version v1.2.0 --since v1.1.0
+node bin/ship-broadcast.mjs --dir path/to/repo --version v1.2.0 --update-changelog
+node bin/ship-broadcast.mjs --dir path/to/repo --gates check-results.json --json
 ```
 
-Zero external runtime dependencies. Requires only Node.js (v18+) and git.
+`--update-changelog` adds the section to the top of the repository's `CHANGELOG.md`, and skips it if that version is already there. Exit codes: `0` packet written, `1` error, `2` bad options.
 
----
+`skill-safe-deploy` runs this tool automatically and passes it the real results of its checks.
 
-## Usage
-
-```bash
-# Package the current repository's recent commits:
-node bin/ship-broadcast.mjs
-
-# Package a specific repository and specify version tag:
-node bin/ship-broadcast.mjs --dir /path/to/project --version v1.2.0
-
-# Prepend release notes directly to project root CHANGELOG.md:
-node bin/ship-broadcast.mjs --dir /path/to/project --version v1.2.0 --update-changelog
-
-# Output release manifest as JSON:
-node bin/ship-broadcast.mjs --json
-```
-
----
-
-## Release Artifacts
-
-Every invocation creates a dedicated version packet inside `./release-packets/<version>/`:
-* `RELEASE-MANIFEST.json`: Complete structured ledger of the release.
-* `CHANGELOG.md`: Clean Markdown changelog ready for documentation or GitHub Releases.
-* `BROADCAST-PENDING.md`: Multi-channel broadcast copy ready for human review and sign-off.
-
----
-
-## Testing
+## Tests
 
 ```bash
 npm test
 ```
 
-All 5 unit tests execute against an ephemeral mock git repository verifying conventional commit parsing, diff statistics, changelog categorization, broadcast generation, and character invariant compliance.
-
----
-
 ## License
 
-MIT © We Build for Good
+MIT. We Build for Good
